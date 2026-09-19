@@ -19,7 +19,6 @@ type Update<S, A, T> = {
 	action: A,
 	eagerState: S,
 	eagerSelection: T,
-	processed: boolean
 	next: Update<S, A, T>,
 };
 
@@ -127,37 +126,36 @@ export function useStore<S, A, T = S>(
 	let newBaseQueueFirst = baseQueue?.next ?? null;
 	let newBaseQueueLast = baseQueue;
 
-	// Mark all the updates as unprocessed
-	if (baseQueue) {
-		let cursor = baseQueue.next
-		do {
-			cursor.processed = false
-			cursor = cursor.next
-		} while (cursor !== baseQueue.next)
-	}
+	const prevState = newState;
 
-	let prevState = newState;
+	// React checks whether the reducer is pure by running it twice in strict
+	// mode in dev, per update. This is a completely artificial invocation that
+	// will *never* happen in any other circumstance (at, least, not in the same
+	// render).
+	// Keep track of whether we've already processed an update this render so we
+	// can use the cached result.
+	const processed = new Map<Update<S, A, T>, T>
 
-	const [state, dispatch] = useReducer((prevSelection: T, update: Update<S, A, T>) => {
+	let skippedUpdates = false
+
+	const [state, dispatch] = useReducer((_prevSelection: T, update: Update<S, A, T>) => {
+		if (processed.has(update)) {
+			return processed.get(update)!
+		}
+
 		// If the reducer is being run, it means that there	is a queue of updates to
 		// be processed.
 		invariant(baseQueue !== null, 'Expected baseQueue to have unprocessed updates')
 
-		// React checks whether the reducer is pure by running it twice in strict
-		// mode in dev, per update.
-		// Our reducer isn't pure, but it ought to be at least idempotent
-		if (prevSelection === newSelection) {
-			prevState = newState
-		}
-
 		// check whether any updates have been skipped
-		let skippedUpdates = false
-		let cursor = baseQueue.next
-		while (cursor !== update && !skippedUpdates) {
-			if (!cursor.processed) {
-				skippedUpdates = true
+		if (!skippedUpdates) {
+			let cursor = baseQueue.next
+			while (cursor !== update && !skippedUpdates) {
+				if (!processed.has(cursor)) {
+					skippedUpdates = true
+				}
+				cursor = cursor.next
 			}
-			cursor = cursor.next
 		}
 
 		if (!skippedUpdates) {
@@ -188,7 +186,7 @@ export function useStore<S, A, T = S>(
 			}
 		}
 
-		update.processed = true
+		processed.set(update, newSelection)
 
 		return newSelection
 	}, selector(store.getState()))
@@ -220,7 +218,6 @@ export function useStore<S, A, T = S>(
 				action,
 				eagerState: state,
 				eagerSelection: selection,
-				processed: false,
 				next: null!
 			}
 			hookRef.current.queue.dispatch(update)
