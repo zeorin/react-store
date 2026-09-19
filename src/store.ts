@@ -1,12 +1,14 @@
-import type { Dispatch } from "react"
+import type { Dispatch, SetStateAction } from "react"
 
-type Listener<A> = (action: A) => void
+export function basicStateReducer<S>(state: S, action: SetStateAction<S>): S {
+  return typeof action === 'function' ? (action as Extract<SetStateAction<S>, (...args: unknown[]) => never>)(state) : action;
+}
 
 export interface Store<S, A> {
   dispatch: Dispatch<A>,
   reducer: (prevState: S, action: A) => S,
   getState: () => S
-  subscribe: (listener: Listener<A>) => () => void
+  subscribe: (listener: (action: A) => void) => () => void
 }
 
 export function createStore<S, A>(
@@ -26,7 +28,7 @@ export function createStore<S, I, A>(
 	init?: (i: I) => S,
 ) {
   let state: S
-  const listeners: Set<Listener<A>> = new Set()
+  const listeners: Set<(action: A) => void> = new Set()
 
   const dispatch: Store<S, A>['dispatch'] = (action) => {
     const nextState = reducer(state, action)

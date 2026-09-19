@@ -1,90 +1,162 @@
-import { useDeferredValue, useEffect, useState, useTransition, type SetStateAction } from 'react'
+import { useCallback, useReducer, useState, useTransition, type SetStateAction } from 'react'
 import './App.css'
-import { createStore } from './store'
-import { useStore } from './useStore'
+import { basicStateReducer, createStore } from './store'
+import { StoreContext } from './StoreContext'
+import { StoreNumbers } from './StoreNumbers'
+import { StoreLetters } from './StoreLetters'
 
-function sleep(ms: number) {
-  const startTime = performance.now()
-  while (performance.now() - startTime < ms) {
-    // Do nothing
-  }
+export type State = {
+	numbers: string[]
+	letters: string[]
 }
 
-function basicStateReducer<S>(state: S, action: SetStateAction<S>): S {
-  return typeof action === 'function' ? (action as Extract<SetStateAction<S>, (...args: unknown[]) => never>)(state) : action;
+const initialState: State = {
+	numbers: [],
+	letters: []
+}
+
+function concatNumber(x: string) {
+	return (state: State): State => ({ ...state, numbers: state.numbers.concat(x) })
+}
+
+function concatLetter(x: string) {
+	return (state: State): State => ({ ...state, letters: state.letters.concat(x) })
+}
+
+function delayed<T>(fn: () => T, ms?: number): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		setTimeout(() => {
+			try {
+				resolve(fn())
+			} catch (error) {
+				reject(error)
+			}
+		}, ms)
+	})
 }
 
 function App() {
-  const [store] = useState(() => createStore(basicStateReducer<string>, ''))
+	const [state, setState] = useReducer(basicStateReducer<State>, initialState)
 
-  const [stateString, setState] = useState('')
-  const storeString = useStore(store)
+	const [store] = useState(() => createStore(basicStateReducer<State>, initialState))
 
-  const [, startTransition] = useTransition()
+	const [, startTransition] = useTransition()
 
-  const deferredStoreString = useDeferredValue(storeString)
+	const dispatch = useCallback((action: SetStateAction<State>) => {
+		setState(action)
+		store.dispatch(action)
+	}, [store])
 
-  useEffect(() => {
-	console.log(
-	  'deferredStoreString === store.getState(): %o %s %s',
-	  deferredStoreString === store.getState(),
-	  deferredStoreString,
-	  store.getState()
+	return (
+		<>
+			<section id="center">
+				<div>
+					<h1>useStore</h1>
+					<p>
+						<code>useStore</code> demo
+					</p>
+				</div>
+				<button
+					type="button"
+					className="counter"
+					onClick={async () => {
+						dispatch(concatNumber("1"))
+						startTransition(() => {
+							dispatch(concatLetter("A"))
+						})
+						await delayed(() => {
+							dispatch(concatLetter("B"))
+							startTransition(() => {
+								dispatch(concatNumber("2"))
+							})
+						}, 300)
+						await delayed(() => {
+							dispatch(concatNumber("3"))
+							startTransition(() => {
+								dispatch(concatLetter("C"))
+							})
+						}, 300)
+						await delayed(() => {
+							dispatch(concatLetter("D"))
+							startTransition(() => {
+								dispatch(concatNumber("4"))
+							})
+						}, 300)
+						await delayed(() => {
+							dispatch(concatNumber("5"))
+							startTransition(() => {
+								dispatch(concatLetter("E"))
+							})
+						}, 300)
+					}}
+				>
+					Update
+				</button>
+				<button
+					type="button"
+					className="counter"
+					onClick={async () => {
+						dispatch(concatNumber("1"))
+						startTransition(() => {
+							dispatch(concatNumber("2"))
+						})
+						await delayed(() => {
+							dispatch(concatNumber("3"))
+							startTransition(() => {
+								dispatch(concatNumber("4"))
+							})
+						}, 300)
+						await delayed(() => {
+							dispatch(concatNumber("5"))
+						}, 300)
+					}}
+				>
+					Update numbers
+				</button>
+				<button
+					type="button"
+					className="counter"
+					onClick={async () => {
+						dispatch(concatLetter("A"))
+						startTransition(() => {
+							dispatch(concatLetter("B"))
+						})
+						await delayed(() => {
+							dispatch(concatLetter("C"))
+							startTransition(() => {
+								dispatch(concatLetter("D"))
+							})
+						}, 300)
+						await delayed(() => {
+							dispatch(concatLetter("E"))
+						}, 300)
+					}}
+				>
+					Update letters
+				</button>
+				<button
+					type="button"
+					className="counter"
+					onClick={() => {
+						setState(initialState)
+						store.dispatch(initialState)
+					}}
+				>
+					Reset
+				</button>
+				<StoreContext value={store}>
+					<StoreNumbers />
+					<p>
+						State numbers are "{state.numbers.join('')}"
+					</p>
+					<StoreLetters />
+					<p>
+						State letters are "{state.letters.join('')}"
+					</p>
+				</StoreContext>
+			</section>
+		</>
 	)
-  }, [store, deferredStoreString])
-
-  if (stateString !== "") {
-	sleep(300)
-  }
-
-  return (
-	<>
-      <section id="center">
-        <div>
-          <h1>useStore</h1>
-          <p>
-            <code>useStore</code> demo
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => {
-			setState(str => str + "A")
-			store.dispatch(str => str + "A")
-
-			startTransition(() => {
-				setState(str => str + "B")
-				store.dispatch(str => str + "B")
-			})
-
-			setState(str => str + "C")
-			store.dispatch(str => str + "C")
-
-			startTransition(() => {
-				setState(str => str + "D")
-				store.dispatch(str => str + "D")
-			})
-
-			setState(str => str + "E")
-			store.dispatch(str => str + "E")
-		  }}
-        >
-          Strings are "{stateString}", "{storeString}"
-        </button>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => {
-			setState("")
-			store.dispatch("")
-		  }}
-        >
-          Reset
-        </button>
-      </section>
-	</>
-  )
 }
 
 export default App
