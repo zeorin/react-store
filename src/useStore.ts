@@ -4,6 +4,17 @@ import { useDebugValue, useEffect, useReducer, useRef } from "react";
 import type { Store } from "./store";
 import invariant from "tiny-invariant";
 
+export interface ReactExternalDataSource<S, A> {
+	/** Get the current state of the store. State must be immutable. */
+	getState(): S,
+	/** The stable reducer function used by the store to produce new states.
+	 *  Reducer must be pure. */
+	reducer: (prevState: S, action: A) => S,
+	/** Subscribe to the store. The callback will be called after the state has
+	 *  updated and includes the action that was dispatched. */
+	subscribe: (callback: (action: A) => void) => () => void,
+}
+
 type Update<S, A, T> = {
 	action: A,
 	eagerState: S,

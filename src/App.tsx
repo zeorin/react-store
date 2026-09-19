@@ -1,6 +1,6 @@
-import { useCallback, useReducer, useState, useTransition, type SetStateAction } from 'react'
+import { useCallback, useState, useTransition, type SetStateAction } from 'react'
 import './App.css'
-import { basicStateReducer, createStore } from './store'
+import { createStore } from './store'
 import { StoreContext } from './StoreContext'
 import { StoreNumbers } from './StoreNumbers'
 import { StoreLetters } from './StoreLetters'
@@ -36,9 +36,9 @@ function delayed<T>(fn: () => T, ms?: number): Promise<T> {
 }
 
 function App() {
-	const [state, setState] = useReducer(basicStateReducer<State>, initialState)
+	const [state, setState] = useState(initialState)
 
-	const [store] = useState(() => createStore(basicStateReducer<State>, initialState))
+	const [store] = useState(() => createStore(initialState))
 
 	const [, startTransition] = useTransition()
 
