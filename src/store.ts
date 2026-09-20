@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from "react"
 import type { ReactExternalDataSource } from "./useStore";
 
-function basicStateReducer<S>(state: S, action: SetStateAction<S>): S {
+export function basicStateReducer<S>(state: S, action: SetStateAction<S>): S {
 	return typeof action === 'function'
 		? (action as Extract<SetStateAction<S>, (...args: unknown[]) => never>)(state)
 		: action;

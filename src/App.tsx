@@ -1,9 +1,10 @@
-import { useCallback, useState, useTransition, type SetStateAction } from 'react'
+import { useCallback, useReducer, useState, useTransition, type SetStateAction } from 'react'
 import './App.css'
-import { createStore } from './store'
+import { basicStateReducer, createStore } from './store'
 import { StoreContext } from './StoreContext'
 import { StoreNumbers } from './StoreNumbers'
 import { StoreLetters } from './StoreLetters'
+import { doNothing } from 'remeda'
 
 export type State = {
 	numbers: string[]
@@ -23,7 +24,7 @@ function concatLetter(x: string) {
 	return (state: State): State => ({ ...state, letters: state.letters.concat(x) })
 }
 
-function delayed<T>(fn: () => T, ms?: number): Promise<T> {
+function delay<T>(fn: () => T, ms?: number): Promise<T> {
 	return new Promise<T>((resolve, reject) => {
 		setTimeout(() => {
 			try {
@@ -36,7 +37,7 @@ function delayed<T>(fn: () => T, ms?: number): Promise<T> {
 }
 
 function App() {
-	const [state, setState] = useState(initialState)
+	const [state, setState] = useReducer(basicStateReducer, initialState)
 
 	const [store] = useState(() => createStore(initialState))
 
@@ -59,35 +60,27 @@ function App() {
 				<button
 					type="button"
 					className="counter"
-					onClick={async () => {
+					onClick={() => {
+						dispatch(state => ({
+							numbers: state.numbers.length !== 0 ? state.numbers.concat(' ') : state.numbers,
+							letters: state.letters.length !== 0 ? state.letters.concat(' ') : state.letters,
+						}))
 						dispatch(concatNumber("1"))
-						startTransition(() => {
-							dispatch(concatLetter("A"))
-						})
-						await delayed(() => {
+						dispatch(concatLetter("A"))
+						startTransition(async () => {
+							dispatch(concatNumber("2"))
 							dispatch(concatLetter("B"))
-							startTransition(() => {
-								dispatch(concatNumber("2"))
-							})
-						}, 300)
-						await delayed(() => {
-							dispatch(concatNumber("3"))
-							startTransition(() => {
-								dispatch(concatLetter("C"))
-							})
-						}, 300)
-						await delayed(() => {
+							await delay(doNothing, 300)
+						})
+						dispatch(concatNumber("3"))
+						dispatch(concatLetter("C"))
+						startTransition(async () => {
+							dispatch(concatNumber("4"))
 							dispatch(concatLetter("D"))
-							startTransition(() => {
-								dispatch(concatNumber("4"))
-							})
-						}, 300)
-						await delayed(() => {
-							dispatch(concatNumber("5"))
-							startTransition(() => {
-								dispatch(concatLetter("E"))
-							})
-						}, 300)
+							await delay(doNothing, 300)
+						})
+						dispatch(concatNumber("5"))
+						dispatch(concatLetter("E"))
 					}}
 				>
 					Update
@@ -95,20 +88,22 @@ function App() {
 				<button
 					type="button"
 					className="counter"
-					onClick={async () => {
+					onClick={() => {
+						dispatch(state => ({
+							...state,
+							numbers: state.numbers.length !== 0 ? state.numbers.concat(' ') : state.numbers,
+						}))
 						dispatch(concatNumber("1"))
-						startTransition(() => {
+						startTransition(async () => {
 							dispatch(concatNumber("2"))
+							await delay(doNothing, 300)
 						})
-						await delayed(() => {
-							dispatch(concatNumber("3"))
-							startTransition(() => {
-								dispatch(concatNumber("4"))
-							})
-						}, 300)
-						await delayed(() => {
-							dispatch(concatNumber("5"))
-						}, 300)
+						dispatch(concatNumber("3"))
+						startTransition(async () => {
+							dispatch(concatNumber("4"))
+							await delay(doNothing, 300)
+						})
+						dispatch(concatNumber("5"))
 					}}
 				>
 					Update numbers
@@ -116,20 +111,22 @@ function App() {
 				<button
 					type="button"
 					className="counter"
-					onClick={async () => {
+					onClick={() => {
+						dispatch(state => ({
+							...state,
+							letters: state.letters.length !== 0 ? state.letters.concat(' ') : state.letters,
+						}))
 						dispatch(concatLetter("A"))
-						startTransition(() => {
+						startTransition(async () => {
 							dispatch(concatLetter("B"))
+							await delay(doNothing, 300)
 						})
-						await delayed(() => {
-							dispatch(concatLetter("C"))
-							startTransition(() => {
-								dispatch(concatLetter("D"))
-							})
-						}, 300)
-						await delayed(() => {
-							dispatch(concatLetter("E"))
-						}, 300)
+						dispatch(concatLetter("C"))
+						startTransition(async () => {
+							dispatch(concatLetter("D"))
+							await delay(doNothing, 300)
+						})
+						dispatch(concatLetter("E"))
 					}}
 				>
 					Update letters
@@ -145,14 +142,14 @@ function App() {
 					Reset
 				</button>
 				<StoreContext value={store}>
-					<StoreNumbers />
 					<p>
 						State numbers are "{state.numbers.join('')}"
 					</p>
-					<StoreLetters />
+					<StoreNumbers />
 					<p>
 						State letters are "{state.letters.join('')}"
 					</p>
+					<StoreLetters />
 				</StoreContext>
 			</section>
 		</>
