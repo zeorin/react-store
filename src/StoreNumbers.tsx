@@ -1,9 +1,10 @@
 import { memo, use } from "react"
-import { StoreContext } from "./StoreContext"
 import invariant from "tiny-invariant"
+import { isShallowEqual } from "remeda"
+
 import { useStore } from "./useStore"
 import type { State } from "./App"
-import { isShallowEqual } from "remeda"
+import { StoreContext } from "./StoreContext"
 
 function selectNumbers(state: State) { return state.numbers }
 

@@ -1,8 +1,22 @@
 /* eslint-disable react-hooks/immutability */
 /* eslint-disable react-hooks/refs */
-import { useDebugValue, useEffect, useMemo, useReducer, useRef, useState, type ActionDispatch } from "react";
-import type { Store } from "./store";
+import {
+	useDebugValue,
+	useEffect,
+	useReducer,
+	useRef,
+	useState,
+} from "react";
 import invariant from "tiny-invariant";
+
+import type { Store } from "./store";
+import {
+	enqueueUpdate,
+	useHook,
+	type Hook,
+	type Update,
+	type UpdateQueue
+} from "./useHook";
 
 let didWarnAboutReferentialStability = false
 
@@ -19,39 +33,6 @@ export interface ReactExternalDataSource<S, A> {
 	subscribe: (callback: (action: A) => void) => () => void,
 }
 
-type Update<S, A> = {
-	action: A,
-	eagerState: S,
-	next: Update<S, A>,
-};
-
-type UpdateQueue<S, A> = {
-	pending: Update<S, A> | null,
-	dispatch: ((update: Update<S, A>) => void),
-};
-
-type Hook<S, A> = {
-	memoizedState: S
-	baseState: S,
-	baseQueue: Update<S, A> | null,
-	queue: UpdateQueue<S, A>,
-};
-
-function enqueueUpdate<S, A>(
-	queue: UpdateQueue<S, A>,
-	update: Update<S, A>
-): void {
-	const pending = queue.pending
-	if (pending === null) {
-		// This is the first update. Create a circular list.
-		update.next = update
-	} else {
-		update.next = pending.next;
-		pending.next = update;
-	}
-	queue.pending = update;
-}
-
 function dispatchReducerUpdate<S, A>(
 	queue: UpdateQueue<S, A>,
 	update: Update<S, A>
@@ -63,6 +44,11 @@ function identity<T>(x: T): T {
 	return x
 }
 
+type State<S, T> = {
+	snapshot: S,
+	selection: T
+}
+
 /**
  * React's `useReducer` already knows how to handle concurrent updates.
  *
@@ -71,166 +57,272 @@ function identity<T>(x: T): T {
  */
 export function useStore<S, A, T = S>(
 	store: Store<S, A>,
-	selector: ((state: S) => T) = identity as never,
+	selector: ((snapshot: S) => T) = identity as never,
 	isEqual: ((a: T, b: T) => boolean) = Object.is,
 ): T {
-	const hookRef = useRef<Hook<[S, T], A>>(null!)
+	const [hook, current] = useHook<State<S, T>, A>()
 
-	if (hookRef.current === null) {
-		const state = store.getState()
-		const selection = selector(state)
-		const memoizedState: [S, T] = [state, selection]
+	const prevHookRef = useRef<Hook<State<S, T>, A>>(null)
+	const isMountRender = prevHookRef.current === null
+	const isUpdateRender = prevHookRef.current === current
+	const isRerender = prevHookRef.current === hook
+	prevHookRef.current = hook
 
-		const queue: UpdateQueue<[S, T], A> = {
+	let dispatch: React.ActionDispatch<[update: Update<State<S, T>, A>]>
+
+	/** Not expected to ever be called */
+	function noopReducer() {
+		if (import.meta.env.DEV) {
+			console.error('[useStore] No-op reducer was unexpectedly called. This is a bug.')
+		}
+		return hook.memoizedState.selection
+	}
+
+	if (isMountRender) {
+
+		invariant(current === null)
+
+		const snapshot = store.getState()
+		const selection = selector(snapshot)
+		const initialState: State<S, T> = { snapshot, selection }
+
+		const queue: UpdateQueue<State<S, T>, A> = {
 			pending: null,
 			dispatch: null!,
 		};
 
-		queue.dispatch = (dispatchReducerUpdate<[S, T], A>).bind(null, queue)
+		queue.dispatch = (dispatchReducerUpdate<State<S, T>, A>).bind(null, queue)
 
-		const hook: Hook<[S, T], A> = {
-			memoizedState,
-			baseState: memoizedState,
-			baseQueue: null,
-			queue
+		hook.memoizedState = initialState
+		hook.baseState = initialState
+		hook.baseQueue = null
+		hook.queue = queue
+
+		// eslint-disable-next-line react-hooks/rules-of-hooks -- it's OK, we also call it below in the other branches
+		dispatch = useReducer(noopReducer, hook.memoizedState.selection)[1]
+	} else if (isUpdateRender) {
+
+		const queue = hook.queue
+
+		// The last rebase update that is NOT part of the base state.
+		let baseQueue = hook.baseQueue;
+
+		// The last pending update that hasn't been processed yet.
+		const pendingQueue = queue.pending;
+		if (pendingQueue !== null) {
+			invariant(current)
+
+			// We have new updates that haven't been processed yet.
+			// We'll add them to the base queue.
+			if (baseQueue !== null) {
+				// Merge the pending queue and the base queue.
+				const baseFirst = baseQueue.next;
+				const pendingFirst = pendingQueue.next;
+				baseQueue.next = pendingFirst;
+				pendingQueue.next = baseFirst;
+			}
+			if (import.meta.env.DEV) {
+				invariant(current.baseQueue === baseQueue, '[useStore] Expected work-in-progress queue to be a clone. ' +
+					'This is a bug in useStore')
+			}
+			current.baseQueue = baseQueue = pendingQueue;
+			queue.pending = null;
 		}
 
-		hookRef.current = hook
+		const baseState = hook.baseState;
+		if (baseQueue === null) {
+			// If there are no pending updates, then the memoized state should be the
+			// same as the base state. Currently these only diverge in the case of
+			// useOptimistic, because useOptimistic accepts a new baseState on
+			// every render.
+			hook.memoizedState = baseState
+			// eslint-disable-next-line react-hooks/rules-of-hooks -- it's OK, we also call it below in the other branch
+			dispatch = useReducer(noopReducer, hook.memoizedState.selection)[1]
+		} else {
+			// We have a queue to process.
+			let newState = baseState;
+
+			// There's a chance that the first, or even all updates might be skipped, So
+			// we set up the new base queue and state right away.
+			let newBaseState = baseState;
+			let newBaseQueueFirst: Update<State<S, T>, A>;
+			let newBaseQueueLast: Update<State<S, T>, A>;
+
+			let update = baseQueue.next
+			do {
+				const clone: Update<State<S, T>, A> = {
+					action: update.action,
+					eagerState: update.eagerState,
+					next: null!,
+				};
+
+				if (!newBaseQueueLast!) {
+					// This is the first update,
+					// create a circular linked list
+					clone.next = clone
+					newBaseQueueFirst = newBaseQueueLast = clone;
+				} else {
+					clone.next = newBaseQueueFirst!
+					newBaseQueueLast = newBaseQueueLast.next = clone;
+				}
+				update = update.next
+			} while (update !== baseQueue.next)
+
+			if (import.meta.env.DEV) {
+				invariant(newBaseQueueFirst!)
+				invariant(newBaseQueueLast)
+			}
+
+			// Work around TS 2454 "Variable is used before being assigned"
+			newBaseQueueFirst = newBaseQueueFirst!
+
+			// Keep track of whether we've already processed an update this render so we
+			// can use the cached result.
+			const processed = new Map<Update<State<S, T>, A>, T>
+
+			let didSkipUpdates = true
+
+			function reducer(_prevState: T, update: Update<State<S, T>, A>) {
+				// React checks whether the reducer is pure by running it twice in strict
+				// mode in dev, per update. This is a completely artificial double
+				// invocation. Just return the cached result.
+				if (processed.has(update)) {
+					return processed.get(update)!
+				}
+
+				const prevState = newState
+				const prevBaseState = newBaseState
+
+				// The base queue is made of clones, but the updates that React gives us
+				// were the originally dispatched objects. The `eagerState` has a stable
+				// referential identity, even across cloned queues.
+				if (update.eagerState === newBaseQueueFirst.eagerState) {
+					didSkipUpdates = false
+
+					// If there haven't been any skipped updates, it means we can use the
+					// supplied eager state directly.
+					newState = {
+						snapshot: update.eagerState.snapshot,
+						selection: update.eagerState.selection,
+					}
+
+					// It is also the new base state
+					newBaseState = {
+						snapshot: update.eagerState.snapshot,
+						selection: update.eagerState.selection,
+					};
+
+					if (isEqual(newBaseState.selection, prevBaseState.selection)) {
+						newBaseState.selection = prevBaseState.selection
+					}
+
+					// And we can shift its clone off the base queue
+					newBaseQueueLast.next = newBaseQueueFirst = newBaseQueueFirst.next
+				} else {
+					didSkipUpdates = true
+					const snapshot = store.reducer(prevState.snapshot, update.action)
+					const selection = selector(snapshot)
+					newState = { snapshot, selection }
+					// update.eagerState.snapshot = snapshot
+					// update.eagerState.selection = selection
+				}
+
+				if (isEqual(newState.selection, prevState.selection)) {
+					newState.selection = prevState.selection
+				}
+
+				processed.set(update, newState.selection)
+
+				return newState.selection
+			}
+
+			// eslint-disable-next-line react-hooks/rules-of-hooks -- we call it a consistent number of times
+			dispatch = useReducer(reducer, hook.memoizedState.selection)[1]
+
+			hook.memoizedState = newState;
+			hook.baseState = newBaseState;
+
+			if (didSkipUpdates) {
+				hook.baseQueue = newBaseQueueLast;
+			} else {
+				hook.baseQueue = null
+			}
+		}
+	} else if (isRerender) {
+		const queue = hook.queue
+
+		// Apply the new render phase updates to the previous
+		// work-in-progress hook.
+		const lastRenderPhaseUpdate = queue.pending;
+		let newState = hook.memoizedState;
+		if (lastRenderPhaseUpdate === null) {
+			// eslint-disable-next-line react-hooks/rules-of-hooks -- we call it a consistent number of times
+			dispatch = useReducer(noopReducer, hook.memoizedState.selection)[1]
+		} else {
+			// The queue doesn't persist past this render pass.
+			queue.pending = null;
+
+			const didSkipUpdates = hook.baseQueue !== null
+
+			function reducer(_prevState: T, update: Update<State<S, T>, A>) {
+				const prevState = newState
+
+				// The base queue is made of clones, but the updates that React gives us
+				// were the originally dispatched objects. The `eagerState` has a stable
+				// referential identity, even across cloned queues.
+				if (!didSkipUpdates) {
+
+					// If there haven't been any skipped updates, it means we can use the
+					// supplied eager state directly.
+					newState = {
+						snapshot: update.eagerState.snapshot,
+						selection: update.eagerState.selection,
+					}
+				} else {
+					const snapshot = store.reducer(prevState.snapshot, update.action)
+					const selection = selector(snapshot)
+					newState = { snapshot, selection }
+					// update.eagerState.snapshot = snapshot
+					// update.eagerState.selection = selection
+				}
+
+				if (isEqual(newState.selection, prevState.selection)) {
+					newState.selection = prevState.selection
+				}
+
+				return newState.selection
+			}
+
+			// eslint-disable-next-line react-hooks/rules-of-hooks -- we call it a consistent number of times
+			dispatch = useReducer(reducer, hook.memoizedState.selection)[1]
+
+			hook.memoizedState = newState;
+			// Don't persist the state accumulated from the render phase updates to
+			// the base state unless the queue is empty.
+			if (hook.baseQueue === null) {
+				hook.baseState = newState;
+			}
+		}
+	} else {
+		// We should never reach this branch
+		invariant(false)
 	}
-
-	const getHook = useMemo(() => {
-		const { current } = hookRef
-
-		const hook: Hook<[S, T], A> = {
-			memoizedState: current.memoizedState,
-			baseState: current.baseState,
-			baseQueue: current.baseQueue,
-			queue: current.queue
-		}
-
-		return () => hook
-	}, [])
-
-	const hook = getHook()
 
 	const queue = hook.queue
-
-	// The last rebase update that is NOT part of the base state.
-	let baseQueue = hook.baseQueue;
-
-	// The last pending update that hasn't been processed yet.
-	const pendingQueue = queue.pending;
-	if (pendingQueue !== null) {
-		// We have new updates that haven't been processed yet.
-		// We'll add them to the base queue.
-		if (baseQueue !== null) {
-			// Merge the pending queue and the base queue.
-			const baseFirst = baseQueue.next;
-			const pendingFirst = pendingQueue.next;
-			baseQueue.next = pendingFirst;
-			pendingQueue.next = baseFirst;
-		}
-		hookRef.current.baseQueue = baseQueue = pendingQueue;
-		queue.pending = null;
-	}
-
-	const baseState = hook.baseState;
-
-	let dispatch: ActionDispatch<[update: Update<[S, T], A>]>
-
-	if (baseQueue === null) {
-		hook.memoizedState = baseState
-		function reducer() {
-			return hook.memoizedState[1]
-		}
-		// eslint-disable-next-line react-hooks/rules-of-hooks -- we call it a consistent number of times
-		dispatch = useReducer(reducer, hook.memoizedState[1])[1]
-	} else {
-		// We have a queue to process.
-		let newState = baseState;
-		let prevState = newState;
-
-		let newBaseState = baseState;
-		let newBaseQueueFirst = baseQueue.next;
-		let newBaseQueueLast: Update<[S, T], A> | null = baseQueue;
-
-		// Keep track of whether we've already processed an update this render so we
-		// can use the cached result.
-		const processed = new Map<Update<[S, T], A>, T>
-
-		function reducer(_prevState: T, update: Update<[S, T], A>) {
-			// React checks whether the reducer is pure by running it twice in strict
-			// mode in dev, per update. This is a completely artificial invocation that
-			// will *never* happen in any other circumstance (at, least, not in the same
-			// render pass).
-			// Just return the cached result
-			if (processed.has(update)) {
-				return processed.get(update)!
-			}
-
-			// If the reducer is being run, it means that there	is a queue of updates to
-			// be processed.
-			invariant(baseQueue !== null, 'Expected baseQueue to have unprocessed updates')
-
-			const hasSkippedUpdate = processed.size !== 0 && [...processed.keys()][processed.size - 1].next !== update
-
-			if (!hasSkippedUpdate) {
-				// If there haven't been any skipped updates, it means we can use the
-				// store's state at the time of the update directly, and it also means we
-				// need to shift the base queue.
-				newBaseState[0] = newState[0] = update.eagerState[0]
-				if (!isEqual(newBaseState[1], update.eagerState[1])) {
-					newBaseState[1] = update.eagerState[1]
-				}
-				if (!isEqual(newState[1], update.eagerState[1])) {
-					newState[1] = update.eagerState[1]
-				}
-
-				if (update === baseQueue) {
-					// This update was the last one in the queue, all updates have been
-					// flushed.
-					newBaseQueueLast = null
-				} else {
-					newBaseQueueFirst = update.next
-				}
-			} else {
-				newState[0] = store.reducer(newState[0], update.action)
-				const selection = selector(newState[0])
-				if (!isEqual(newState[1], selection)) {
-					newState[1] = selection
-				}
-			}
-
-			processed.set(update, newState[1])
-
-			return newState[1]
-		}
-
-		// eslint-disable-next-line react-hooks/rules-of-hooks -- we call it a consistent number of times
-		dispatch = useReducer(reducer, hook.memoizedState[1])[1]
-
-		if (newBaseQueueLast !== null) {
-			newBaseQueueLast.next = newBaseQueueFirst;
-		}
-
-		hook.memoizedState = newState;
-		hook.baseState = newBaseState;
-		hook.baseQueue = newBaseQueueLast;
-	}
 
 	const [prevSelector, setPrevSelector] = useState(() => selector)
 	const [prevIsEqual, setPrevIsEqual] = useState(() => isEqual)
 
-	const selectorChanged = prevSelector !== selector
-	const isEqualChanged = prevIsEqual !== isEqual
+	const selectorDidChange = prevSelector !== selector
+	const isEqualDidChange = prevIsEqual !== isEqual
 
 	const numberOfReRendersRef = useRef(0)
 	const probablyUsingReferentiallyUnstableFunctionsRef = useRef(false)
 
-	if (!(selectorChanged || isEqualChanged)) {
+	if (!selectorDidChange && !isEqualDidChange) {
 		numberOfReRendersRef.current = 0
 	} else {
-		let eagerStateChanged = false
+		let selectionDidChange = false
 
 		// re-compute the selections on the queues
 		const baseQueue = hook.baseQueue
@@ -239,40 +331,38 @@ export function useStore<S, A, T = S>(
 			if (queue === null) continue
 			let cursor = queue.next
 			do {
-				const selection = selector(cursor.eagerState[0])
-				if (!isEqual(cursor.eagerState[1], selection)) {
-					eagerStateChanged = true
-					cursor.eagerState[1] = selection
+				const selection = selector(cursor.eagerState.snapshot)
+				if (!isEqual(cursor.eagerState.selection, selection)) {
+					cursor.eagerState.selection = selection
+					selectionDidChange = true
 				}
 				cursor = cursor.next
 			} while (cursor !== queue.next)
 		}
 
-		let memoizedStateChanged = false
-
-		// Re-compute the memoizedState selection
-		const newSelection = selector(hook.memoizedState[0])
-		if (!isEqual(hook.memoizedState[1], newSelection)) {
-			hook.memoizedState[1] = newSelection
-			memoizedStateChanged = true
+		{
+			// Re-compute the memoizedState selection
+			const selection = selector(hook.memoizedState.snapshot)
+			if (!isEqual(hook.memoizedState.selection, selection)) {
+				hook.memoizedState.selection = selection
+				selectionDidChange = true
+			}
 		}
 
-		// Re-compute the baseState selection
-		if (baseQueue === null && memoizedStateChanged && hook.memoizedState[0] === hook.baseState[0]) {
-			hook.baseState[1] = hook.memoizedState[1]
-		} else {
-			const newBaseSelection = selector(hook.baseState[0])
-			if (!isEqual(hook.baseState[1], newBaseSelection)) {
-				hook.baseState[1] = newBaseSelection
-				eagerStateChanged = true
+		{
+			// Re-compute the baseState selection
+			const selection = selector(hook.baseState.snapshot)
+			if (!isEqual(hook.baseState.selection, selection)) {
+				hook.baseState.selection = selection
+				selectionDidChange = true
 			}
 		}
 
 		// Force re-render only if anything actually changed
-		if (eagerStateChanged || memoizedStateChanged) {
+		if (selectionDidChange) {
 			numberOfReRendersRef.current = 0
-			if (selectorChanged) setPrevSelector(() => selector)
-			if (isEqualChanged) setPrevIsEqual(() => isEqual)
+			if (selectorDidChange) setPrevSelector(() => selector)
+			if (isEqualDidChange) setPrevIsEqual(() => isEqual)
 		} else {
 			numberOfReRendersRef.current++
 			if (numberOfReRendersRef.current === RE_RENDER_LIMIT) {
@@ -289,21 +379,23 @@ export function useStore<S, A, T = S>(
 					probablyUsingReferentiallyUnstableFunctionsRef.current = true
 				}
 			} else if (!probablyUsingReferentiallyUnstableFunctionsRef.current) {
-				if (selectorChanged) setPrevSelector(() => selector)
-				if (isEqualChanged) setPrevIsEqual(() => isEqual)
+				if (selectorDidChange) setPrevSelector(() => selector)
+				if (isEqualDidChange) setPrevIsEqual(() => isEqual)
 			}
 		}
 	}
+
+	invariant(dispatch!)
 
 	useEffect(() => {
 		// TODO: handle updates dispatched after mount but before subscription
 
 		return store.subscribe((action) => {
-			const state = store.getState()
-			const selection = selector(state)
-			const update: Update<[S, T], A> = {
+			const snapshot = store.getState()
+			const selection = selector(snapshot)
+			const update: Update<State<S, T>, A> = {
 				action,
-				eagerState: [state, selection],
+				eagerState: { snapshot, selection },
 				next: null!
 			}
 			queue.dispatch(update)
@@ -311,7 +403,7 @@ export function useStore<S, A, T = S>(
 		})
 	}, [store, selector, isEqual, dispatch, queue])
 
-	useDebugValue(hook.memoizedState[1])
+	useDebugValue(hook.memoizedState.selection)
 
-	return hook.memoizedState[1]
+	return hook.memoizedState.selection
 }

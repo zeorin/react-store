@@ -1,10 +1,17 @@
-import { useCallback, useReducer, useState, useTransition, type SetStateAction } from 'react'
-import './App.css'
+import {
+	useCallback,
+	useReducer,
+	useState,
+	useTransition,
+} from 'react'
+import { doNothing } from 'remeda'
+
 import { basicStateReducer, createStore } from './store'
 import { StoreContext } from './StoreContext'
 import { StoreNumbers } from './StoreNumbers'
 import { StoreLetters } from './StoreLetters'
-import { doNothing } from 'remeda'
+
+import './App.css'
 
 export type State = {
 	numbers: string[]
@@ -43,7 +50,7 @@ function App() {
 
 	const [, startTransition] = useTransition()
 
-	const dispatch = useCallback((action: SetStateAction<State>) => {
+	const dispatch = useCallback((action: React.SetStateAction<State>) => {
 		setState(action)
 		store.dispatch(action)
 	}, [store])
