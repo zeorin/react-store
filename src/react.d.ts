@@ -37,10 +37,11 @@ namespace React {
 
 			// React uses these methods.
 			checkDCE: (fn: () => void) => void,
+			onScheduleFiberRoot: (rendererID: RendererED, fiber: FiberRoot, children: React.ReactNode) => void,
 			onCommitFiberUnmount: (rendererID: RendererID, fiber: ReactReconciler.Fiber) => void,
 			onCommitFiberRoot: (
 				rendererID: RendererID,
-				fiber: ReactReconciler.Fiber,
+				fiber: ReactReconciler.FiberRoot,
 				// Added in v16.9 to support Profiler priority labels
 				commitPriority?: number,
 				// Added in v16.9 to support Fast Refresh
@@ -48,7 +49,7 @@ namespace React {
 			) => void,
 			onPostCommitFiberRoot: (
 				rendererID: number,
-				fiber: object
+				fiber: ReactReconciler.FiberRoot
 			) => void
 
 			settings?: Readonly<HookSettings>,

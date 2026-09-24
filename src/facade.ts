@@ -89,24 +89,20 @@ export function installFacade(target: FacadeTarget = globalThis): Facade {
 		supportsFiber: true,
 		supportsFlight: true,
 		checkDCE() {},
-		onCommitFiberRoot(
-			rendererID: number,
-			root: FiberRoot,
-			schedulerPriority?: number
-		) {
-			recordCommitFiberRoot(
-				fiberRoots,
-				profilingState,
-				rendererID,
-				root,
-				schedulerPriority,
-			);
+		onCommitFiberRoot(rendererID: number, root: FiberRoot, schedulerPriority?: number) {
+			syncFiberRoots(fiberRoots, rendererID, root);
+			if (profilingState.isActive && profilingState.onCommit != null) {
+				profilingState.onCommit(rendererID, root, schedulerPriority);
+			}
 		},
 		onCommitFiberUnmount() {},
 		onPostCommitFiberRoot(_rendererID: number, root: FiberRoot) {
 			if (profilingState.isActive && profilingState.onPostCommit != null) {
 				profilingState.onPostCommit(root);
 			}
+		},
+		onScheduleFiberRoot(rendererID: number, root: FiberRoot) {
+			syncFiberRoots(fiberRoots, rendererID, root);
 		},
 	};
 
@@ -180,13 +176,10 @@ function attachToExistingHook(
 				...rest,
 			);
 		}
-		recordCommitFiberRoot(
-			fiberRoots,
-			profilingState,
-			rendererID,
-			root,
-			schedulerPriority,
-		);
+		syncFiberRoots(fiberRoots, rendererID, root);
+		if (profilingState.isActive && profilingState.onCommit != null) {
+			profilingState.onCommit(rendererID, root, schedulerPriority);
+		}
 	};
 
 	const originalOnPostCommitFiberRoot = hook.onPostCommitFiberRoot;
@@ -202,6 +195,26 @@ function attachToExistingHook(
 		if (profilingState.isActive && profilingState.onPostCommit != null) {
 			profilingState.onPostCommit(root);
 		}
+	};
+
+	const originalOnScheduleFiberRoot = hook.onScheduleFiberRoot;
+	hook.onScheduleFiberRoot = function onScheduleFiberRoot(
+		rendererID: number,
+		root: FiberRoot,
+		children: React.ReactNode,
+		...rest: any[]
+	) {
+		if (typeof originalOnScheduleFiberRoot === 'function') {
+			originalOnScheduleFiberRoot.call(
+				hook,
+				rendererID,
+				root,
+				children,
+				// @ts-expect-error -- just in case they add extra params in the future
+				...rest,
+			);
+		}
+		syncFiberRoots(fiberRoots, rendererID, root);
 	};
 }
 
@@ -230,15 +243,10 @@ function initializeRendererInternals(
 	});
 }
 
-// Record a commit: keep fiberRoots in sync (add new roots, drop unmounted ones)
-// and drive a profiling session when one is active. Shared by the installed
-// hook's onCommitFiberRoot and the attach path's wrapper.
-function recordCommitFiberRoot(
+function syncFiberRoots(
 	fiberRoots: Map<number, Set<FiberRoot>>,
-	profilingState: ProfilingState,
 	rendererID: number,
 	root: FiberRoot,
-	schedulerPriority?: number,
 ): void {
 	let mountedRoots = fiberRoots.get(rendererID);
 	if (mountedRoots == null) {
@@ -254,6 +262,19 @@ function recordCommitFiberRoot(
 	} else if (isKnownRoot && isUnmounting) {
 		mountedRoots.delete(root);
 	}
+}
+
+// Record a commit: keep fiberRoots in sync (add new roots, drop unmounted ones)
+// and drive a profiling session when one is active. Shared by the installed
+// hook's onCommitFiberRoot and the attach path's wrapper.
+function recordCommitFiberRoot(
+	fiberRoots: Map<number, Set<FiberRoot>>,
+	profilingState: ProfilingState,
+	rendererID: number,
+	root: FiberRoot,
+	schedulerPriority?: number,
+): void {
+	syncFiberRoots(fiberRoots, rendererID, root)
 
 	if (profilingState.isActive && profilingState.onCommit != null) {
 		profilingState.onCommit(rendererID, root, schedulerPriority);
