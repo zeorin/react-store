@@ -13,6 +13,8 @@ import { StoreLetters } from './StoreLetters'
 
 import './App.css'
 
+const TRANSITION_STAGGER_DELAY = 1000;
+
 export type State = {
 	numbers: string[]
 	letters: string[]
@@ -77,14 +79,14 @@ function App() {
 						startTransition(async () => {
 							dispatch(concatNumber("2"))
 							dispatch(concatLetter("B"))
-							await delay(doNothing, 300)
+							await delay(doNothing, TRANSITION_STAGGER_DELAY)
 						})
 						dispatch(concatNumber("3"))
 						dispatch(concatLetter("C"))
 						startTransition(async () => {
 							dispatch(concatNumber("4"))
 							dispatch(concatLetter("D"))
-							await delay(doNothing, 300)
+							await delay(doNothing, TRANSITION_STAGGER_DELAY)
 						})
 						dispatch(concatNumber("5"))
 						dispatch(concatLetter("E"))
@@ -103,12 +105,12 @@ function App() {
 						dispatch(concatNumber("1"))
 						startTransition(async () => {
 							dispatch(concatNumber("2"))
-							await delay(doNothing, 300)
+							await delay(doNothing, TRANSITION_STAGGER_DELAY)
 						})
 						dispatch(concatNumber("3"))
 						startTransition(async () => {
 							dispatch(concatNumber("4"))
-							await delay(doNothing, 300)
+							await delay(doNothing, TRANSITION_STAGGER_DELAY)
 						})
 						dispatch(concatNumber("5"))
 					}}
@@ -126,12 +128,12 @@ function App() {
 						dispatch(concatLetter("A"))
 						startTransition(async () => {
 							dispatch(concatLetter("B"))
-							await delay(doNothing, 300)
+							await delay(doNothing, TRANSITION_STAGGER_DELAY)
 						})
 						dispatch(concatLetter("C"))
 						startTransition(async () => {
 							dispatch(concatLetter("D"))
-							await delay(doNothing, 300)
+							await delay(doNothing, TRANSITION_STAGGER_DELAY)
 						})
 						dispatch(concatLetter("E"))
 					}}
