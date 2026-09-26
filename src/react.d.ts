@@ -37,7 +37,6 @@ namespace React {
 
 			// React uses these methods.
 			checkDCE: (fn: () => void) => void,
-			onScheduleFiberRoot: (rendererID: RendererED, fiber: FiberRoot, children: React.ReactNode) => void,
 			onCommitFiberUnmount: (rendererID: RendererID, fiber: ReactReconciler.Fiber) => void,
 			onCommitFiberRoot: (
 				rendererID: RendererID,

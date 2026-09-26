@@ -47,28 +47,29 @@ export function installFacade(target: FacadeTarget = globalThis): Facade {
 }
 
 
+
 function installFacadeImpl(target: FacadeTarget): Facade {
-	const fiberRoots: Map<number, Set<FiberRoot>> = new Map();
-	const rendererInternals: Map<number, React.DevTools.RendererInternals> = new Map();
+	const fiberRoots = new Map<React.DevTools.RendererID, Set<FiberRoot>>;
+	const rendererInternals = new Map<number, React.DevTools.RendererInternals>();
 	const profilingState: ProfilingState = {
 		isActive: false,
 		currentTraceName: null,
 		traces: new Map(),
 		onCommit: null,
 		onPostCommit: null,
-	};
+	}
 
 	// A hook is already installed (e.g. the React DevTools extension). Attach to
 	// it rather than replacing it.
 	const existingHook = target.__REACT_DEVTOOLS_GLOBAL_HOOK__;
 	if (existingHook != null) {
-		attachToExistingHook(
+		attachToHook(
 			existingHook,
 			fiberRoots,
 			rendererInternals,
-			profilingState,
-		);
-		return { hook: existingHook, fiberRoots, rendererInternals, profilingState };
+			profilingState
+		)
+		return { hook: existingHook, fiberRoots, rendererInternals, profilingState }
 	}
 
 	let registeredRenderersCount = 0;
@@ -79,8 +80,12 @@ function installFacadeImpl(target: FacadeTarget): Facade {
 		renderers: new Map(),
 		hasUnsupportedRendererAttached: false,
 		backends: new Map(),
-		emit() {},
-		getFiberRoots(rendererID: number) {
+		emit: (event, data) => {
+			if (hook.listeners[event]) {
+				hook.listeners[event].map(fn => fn(data));
+			}
+		},
+		getFiberRoots: (rendererID) => {
 			let roots = fiberRoots.get(rendererID);
 			if (roots == null) {
 				roots = new Set();
@@ -88,35 +93,56 @@ function installFacadeImpl(target: FacadeTarget): Facade {
 			}
 			return roots;
 		},
-		inject(renderer: ReactReconciler.ReactRenderer): number {
+		inject: (renderer): number => {
 			const id = registeredRenderersCount++;
 			hook.renderers.set(id, renderer);
 			return id;
 		},
-		on() {},
-		off() {},
-		sub() {
-			return () => {};
+		on: (event, fn) => {
+			if (!hook.listeners[event]) {
+				hook.listeners[event] = [];
+			}
+			hook.listeners[event].push(fn);
+		},
+		off: (event, fn) => {
+			if (!hook.listeners[event]) {
+				return;
+			}
+			const index = hook.listeners[event].indexOf(fn);
+			if (index !== -1) {
+				hook.listeners[event].splice(index, 1);
+			}
+			if (!hook.listeners[event].length) {
+				delete hook.listeners[event];
+			}
+		},
+		sub: (event, fn) => {
+			hook.on(event, fn);
+			return () => hook.off(event, fn);
 		},
 		supportsFiber: true,
 		supportsFlight: true,
-		checkDCE() {},
-		onCommitFiberRoot(rendererID: number, root: FiberRoot, schedulerPriority?: number) {
+		checkDCE: () => {},
+		onCommitFiberRoot: (rendererID, root, schedulerPriority) => {
 			syncFiberRoots(fiberRoots, rendererID, root);
 			if (profilingState.isActive && profilingState.onCommit != null) {
 				profilingState.onCommit(rendererID, root, schedulerPriority);
 			}
 		},
 		onCommitFiberUnmount() {},
-		onPostCommitFiberRoot(_rendererID: number, root: FiberRoot) {
+		onPostCommitFiberRoot: (_rendererID, root) => {
 			if (profilingState.isActive && profilingState.onPostCommit != null) {
 				profilingState.onPostCommit(root);
 			}
 		},
-		onScheduleFiberRoot(rendererID: number, root: FiberRoot) {
-			syncFiberRoots(fiberRoots, rendererID, root);
-		},
-	};
+	}
+
+	attachToHook(
+		hook,
+		fiberRoots,
+		rendererInternals,
+		profilingState
+	)
 
 	Object.defineProperty(target, '__REACT_DEVTOOLS_GLOBAL_HOOK__', {
 		configurable: import.meta.env.DEV,
@@ -126,10 +152,10 @@ function installFacadeImpl(target: FacadeTarget): Facade {
 		},
 	});
 
-	return { hook, fiberRoots, rendererInternals, profilingState };
+	return { hook, fiberRoots, rendererInternals, profilingState }
 }
 
-function attachToExistingHook(
+function attachToHook(
 	hook: React.DevTools.Hook,
 	fiberRoots: Map<number, Set<FiberRoot>>,
 	rendererInternals: Map<number, React.DevTools.RendererInternals>,
@@ -188,6 +214,7 @@ function attachToExistingHook(
 		if (profilingState.isActive && profilingState.onCommit != null) {
 			profilingState.onCommit(rendererID, root, schedulerPriority);
 		}
+		hook.emit('fiber-root-committed', { id: rendererID, root })
 	};
 
 	const originalOnPostCommitFiberRoot = hook.onPostCommitFiberRoot;
@@ -203,26 +230,6 @@ function attachToExistingHook(
 		if (profilingState.isActive && profilingState.onPostCommit != null) {
 			profilingState.onPostCommit(root);
 		}
-	};
-
-	const originalOnScheduleFiberRoot = hook.onScheduleFiberRoot;
-	hook.onScheduleFiberRoot = function onScheduleFiberRoot(
-		rendererID: number,
-		root: FiberRoot,
-		children: React.ReactNode,
-		...rest: any[]
-	) {
-		if (typeof originalOnScheduleFiberRoot === 'function') {
-			originalOnScheduleFiberRoot.call(
-				hook,
-				rendererID,
-				root,
-				children,
-				// @ts-expect-error -- just in case they add extra params in the future
-				...rest,
-			);
-		}
-		syncFiberRoots(fiberRoots, rendererID, root);
 	};
 }
 
@@ -269,23 +276,6 @@ function syncFiberRoots(
 		mountedRoots.add(root);
 	} else if (isKnownRoot && isUnmounting) {
 		mountedRoots.delete(root);
-	}
-}
-
-// Record a commit: keep fiberRoots in sync (add new roots, drop unmounted ones)
-// and drive a profiling session when one is active. Shared by the installed
-// hook's onCommitFiberRoot and the attach path's wrapper.
-function recordCommitFiberRoot(
-	fiberRoots: Map<number, Set<FiberRoot>>,
-	profilingState: ProfilingState,
-	rendererID: number,
-	root: FiberRoot,
-	schedulerPriority?: number,
-): void {
-	syncFiberRoots(fiberRoots, rendererID, root)
-
-	if (profilingState.isActive && profilingState.onCommit != null) {
-		profilingState.onCommit(rendererID, root, schedulerPriority);
 	}
 }
 
