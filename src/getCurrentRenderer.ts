@@ -1,9 +1,26 @@
 import invariant from "tiny-invariant";
 
-import { facade, type ReactRenderer } from "./facade";
+import { installFacade } from "./facade";
 import { getCurrentDispatcher } from "./getCurrentDispatcher";
 
-function getRendererDispatcher(renderer: ReactRenderer): React.Dispatcher {
+const facade = installFacade()
+
+export function getCurrentRenderer(): ReactReconciler.ReactRenderer | null {
+	const currentDispatcher = getCurrentDispatcher()
+
+	let currentRenderer: ReactReconciler.ReactRenderer | null = null
+
+	for (const renderer of facade.hook.renderers.values()) {
+		if (getRendererDispatcher(renderer) === currentDispatcher) {
+			currentRenderer = renderer
+			break;
+		}
+	}
+
+	return currentRenderer
+}
+
+function getRendererDispatcher(renderer: ReactReconciler.ReactRenderer): React.Dispatcher {
 	let dispatcher: React.Dispatcher | null = null
 
 	invariant(renderer.currentDispatcherRef)
@@ -16,19 +33,4 @@ function getRendererDispatcher(renderer: ReactRenderer): React.Dispatcher {
 	invariant(dispatcher)
 
 	return dispatcher
-}
-
-export function getCurrentRenderer(): ReactRenderer {
-	const currentDispatcher = getCurrentDispatcher()
-
-	let currentRenderer: ReactRenderer | null = null
-
-	for (const renderer of facade.hook.renderers.values()) {
-		if (getRendererDispatcher(renderer) === currentDispatcher) {
-			currentRenderer = renderer
-			break;
-		}
-	}
-
-	return currentRenderer
 }

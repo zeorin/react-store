@@ -2,7 +2,9 @@ import type { Fiber, FiberRoot } from "react-reconciler";
 import invariant from "tiny-invariant";
 
 import { getCurrentRenderer } from "./getCurrentRenderer"
-import { facade } from "./facade"
+import { installFacade } from "./facade"
+
+const facade = installFacade()
 
 export function getCurrentFiberRoots(
 	/**
@@ -12,6 +14,7 @@ export function getCurrentFiberRoots(
 	 */
 	getRendererSpecificFiberRoots: () => FiberRoot[] = getReactDOMFiberRoots
 ) {
+
 	const currentRenderer = getCurrentRenderer()
 
 	let currentFiberRoots: Set<FiberRoot> | null = null

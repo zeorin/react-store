@@ -23,6 +23,8 @@ declare global {
 	var __REACT_DEVTOOLS_GLOBAL_HOOK__: React.DevTools.Hook | undefined
 }
 
+const facades = new WeakMap<FacadeTarget, Facade>()
+
 /**
  * Install the React DevTools facade and return a Facade handle.
  *
@@ -36,6 +38,16 @@ declare global {
  * hook.
  */
 export function installFacade(target: FacadeTarget = globalThis): Facade {
+	let facade = facades.get(target)
+	if (facade === undefined) {
+		facade = installFacadeImpl(target)
+		facades.set(target, facade)
+	}
+	return facade
+}
+
+
+function installFacadeImpl(target: FacadeTarget): Facade {
 	const fiberRoots: Map<number, Set<FiberRoot>> = new Map();
 	const rendererInternals: Map<number, React.DevTools.RendererInternals> = new Map();
 	const profilingState: ProfilingState = {
@@ -116,10 +128,6 @@ export function installFacade(target: FacadeTarget = globalThis): Facade {
 
 	return { hook, fiberRoots, rendererInternals, profilingState };
 }
-
-const facade = installFacade()
-
-export { facade }
 
 function attachToExistingHook(
 	hook: React.DevTools.Hook,
