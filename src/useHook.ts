@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/immutability */
 /* eslint-disable react-hooks/refs */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useRef } from "react"
+import { use, useDeferredValue, useRef, useState } from "react"
 import type { Fiber } from "react-reconciler";
 import invariant from "tiny-invariant"
 
@@ -92,7 +92,7 @@ const uninitialized = Symbol('uninitialized')
  * on the same fiber before it is committed.
  */
 export function useHook<S = any, A = any>(): [hook: Hook<S, A>, current: Hook<S, A> | null] {
-	const fiberRoots = getCurrentFiberRoots()
+	const fiberRoots = use(getCurrentFiberRoots())
 
 	// These are the needles in our haystack
 	const sentinelRef = useRef<symbol>(null!)
@@ -106,6 +106,7 @@ export function useHook<S = any, A = any>(): [hook: Hook<S, A>, current: Hook<S,
 	let hook: Hook<S, A> | null = null
 	let current: Hook<S, A> | null = null
 
+	// TODO: See if this can be optimized or memoized somehow
 	for (const fiberRoot of fiberRoots) {
 		while (hook === null) {
 			// `alternate` is the WIP fiber, unless it's the very first render, then

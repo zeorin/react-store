@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import invariant from 'tiny-invariant'
 
@@ -12,6 +12,8 @@ invariant(root)
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+		<Suspense fallback={<h1 id="center">Suspended</h1>}>
+			<App />
+		</Suspense>
   </StrictMode>,
 )
