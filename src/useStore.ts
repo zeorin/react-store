@@ -1,4 +1,5 @@
 import {
+	useDebugValue,
 	useEffect,
 	useReducer,
 	useState,
@@ -64,6 +65,8 @@ export function useStore<S, A>(
 			prevState = state
 		})
 	}, [initialState, store])
+
+	useDebugValue(state)
 
 	return state
 }

@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/refs */
 /* eslint-disable react-hooks/immutability */
 import {
+	useDebugValue,
 	useEffect,
 	useMemo,
 	useRef,
@@ -149,6 +150,8 @@ export function useStoreWithSelector<Snapshot, Action, Selection>(
 		instRef.current.hasValue = true
 		instRef.current.value = value
 	}, [value])
+
+	useDebugValue(value)
 
 	return value
 }

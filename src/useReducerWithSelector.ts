@@ -5,6 +5,7 @@ import {
 	useMemo,
 	useRef,
 	useReducer,
+	useDebugValue,
 } from "react"
 
 /**
@@ -124,6 +125,8 @@ export function useReducerWithSelector<Snapshot, Action, Selection>(
 		instRef.current.hasValue = true
 		instRef.current.value = value
 	}, [value])
+
+	useDebugValue(value)
 
 	return [value, dispatch]
 }
