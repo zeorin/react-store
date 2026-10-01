@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      compare-versions:
-        specifier: ^5.0.3
-        version: 5.0.3
       react:
         specifier: ^19.2.8
         version: 19.3.0
@@ -36,9 +33,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.7
         version: 19.3.0(@types/react@19.3.0)
-      '@types/react-reconciler':
-        specifier: ^0.33.0
-        version: 0.33.0(@types/react@19.3.0)
       '@vitejs/plugin-react':
         specifier: ^6.1.1
         version: 6.1.1(vite@8.3.0(@types/node@24.13.5))
@@ -342,11 +336,6 @@ packages:
     peerDependencies:
       '@types/react': ^19.3.0
 
-  '@types/react-reconciler@0.33.0':
-    resolution: {integrity: sha512-HZOXsKT0tGI9LlUw2LuedXsVeB88wFa536vVL0M6vE8zN63nI+sSr1ByxmPToP5K5bukaVscyeCJcF9guVNJ1g==}
-    peerDependencies:
-      '@types/react': '*'
-
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
 
@@ -461,9 +450,6 @@ packages:
 
   caniuse-lite@1.0.30001810:
     resolution: {integrity: sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg==}
-
-  compare-versions@5.0.3:
-    resolution: {integrity: sha512-4UZlZP8Z99MGEY+Ovg/uJxJuvoXuN4M6B3hKaiackiHrgzQFEe3diJi1mf1PNHbFujM7FvLrK2bpgIaImbtZ1A==}
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
@@ -1216,10 +1202,6 @@ snapshots:
     dependencies:
       '@types/react': 19.3.0
 
-  '@types/react-reconciler@0.33.0(@types/react@19.3.0)':
-    dependencies:
-      '@types/react': 19.3.0
-
   '@types/react@19.3.0':
     dependencies:
       csstype: 3.2.3
@@ -1358,8 +1340,6 @@ snapshots:
       qified: 0.10.1
 
   caniuse-lite@1.0.30001810: {}
-
-  compare-versions@5.0.3: {}
 
   convert-source-map@2.0.0: {}
 
