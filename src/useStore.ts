@@ -1,17 +1,19 @@
+/* eslint-disable react-hooks/immutability */
 import {
 	useDebugValue,
 	useEffect,
+	useMemo,
 	useReducer,
-	useState,
 } from "react";
+import { useIsomorphicLayoutEffect } from "./useIsomorphicLayoutEffect";
 
 export interface ReactExternalDataSource<S, A> {
-	/** Get the current state of the store. State must be immutable. */
+	/** Get the current snapshot of the store. Snapshot must be immutable. */
 	getState(): S,
-	/** The stable reducer function used by the store to produce new states.
+	/** The stable reducer function used by the store to produce new snapshots.
 	 *  Reducer must be pure. */
-	reducer: (prevState: S, action: A) => S,
-	/** Subscribe to the store. The callback will be called after the state has
+	reducer: (prevSnapshot: S, action: A) => S,
+	/** Subscribe to the store. The callback will be called after the snapshot has
 	 *  updated and includes the action that was dispatched. */
 	subscribe: (callback: (action: A) => void) => () => void,
 }
@@ -29,44 +31,68 @@ type Update<S, A> = {
 export function useStore<S, A>(
 	store: ReactExternalDataSource<S, A>,
 ): S {
-	const [initialState] = useState(() => store.getState())
+	const [initialValue, reducer, subscribe, storeConsistencyCheck] = useMemo(() => {
+		const initialValue = store.getState()
 
-	const [state, dispatch] = useReducer((prevState: S, update: Update<S, A>): S => {
-		if (Object.is(prevState, update.prevState)) {
-			return update.state
-		}
-		return update.reducer(prevState, update.action)
-	}, initialState)
+		// Track the memoized snapshot using a closure variable that is local to
+		// this instance of the store. Intentionally not using a useRef hook,
+		// because that would be shared across all concurrent copies of the
+		// hook/component.
+		let memoizedSnapshot = initialValue
 
-	useEffect(() => {
-		const state = store.getState()
-
-		if (!Object.is(initialState, state)) {
-			const update: Update<S, A> = {
-				prevState: initialState,
-				action: state as never,
-				state,
-				reducer: () => state
-			}
-			dispatch(update)
+		function reducer(prevState: S, update: Update<S, A>): S {
+			const nextState = Object.is(prevState, update.prevState)
+				? update.state
+				: update.reducer(prevState, update.action)
+			memoizedSnapshot = nextState
+			return nextState
 		}
 
-		let prevState = state
+		function subscribe(): () => void {
+			// TODO: Is the consistency check actually needed here?
+			let prevSnapshot = storeConsistencyCheck(store.getState())
+			return store.subscribe((action) => {
+				const snapshot = store.getState()
+				const update: Update<S, A> = {
+					prevState: prevSnapshot,
+					action,
+					state: snapshot,
+					reducer: store.reducer
+				}
+				dispatch(update)
+				prevSnapshot = snapshot
+			})
+		}
 
-		return store.subscribe((action) => {
-			const state = store.getState()
-			const update: Update<S, A> = {
-				prevState,
-				action,
-				state,
-				reducer: store.reducer
+		function storeConsistencyCheck(nextSnapshot: S) {
+			if (!Object.is(memoizedSnapshot, nextSnapshot)) {
+				// The snapshot is not the same as last time. Schedule an update.
+				const update: Update<S, A> = {
+					prevState: memoizedSnapshot,
+					action: nextSnapshot as never,
+					state: nextSnapshot,
+					reducer: () => nextSnapshot
+				}
+				dispatch(update)
 			}
-			dispatch(update)
-			prevState = state
-		})
-	}, [initialState, store])
+			memoizedSnapshot = nextSnapshot
+			return nextSnapshot
+		}
 
-	useDebugValue(state)
+		return [initialValue, reducer, subscribe, storeConsistencyCheck]
+	}, [store])
 
-	return state
+	const [snapshot, dispatch] = useReducer(reducer, initialValue)
+
+	useIsomorphicLayoutEffect(() => {
+		storeConsistencyCheck(initialValue)
+	}, [initialValue, storeConsistencyCheck])
+
+	useEffect(subscribe, [subscribe])
+
+	const value = storeConsistencyCheck(snapshot)
+
+	useDebugValue(value)
+
+	return value
 }
